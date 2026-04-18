@@ -15,6 +15,10 @@ env/
 
 # Configuração do usuário (pode conter senha do OBS WebSocket)
 app/config/config.json
+app/config/config.json.bak
+app/config/*.db
+app/config/*.db-journal
+app/config/*.db-wal
 
 # IDE
 .vscode/

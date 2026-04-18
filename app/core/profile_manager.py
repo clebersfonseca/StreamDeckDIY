@@ -3,17 +3,17 @@ ProfileManager — Gerencia layouts/perfis de mapeamento.
 
 Cada layout define o que cada botão e potenciômetro faz.
 Suporta múltiplos layouts (ex: "OBS Streaming", "Windows", "Gaming").
-Todos os dados são salvos em um arquivo JSON de configuração.
+Todos os dados são armazenados em banco de dados SQLite.
 """
 
 import json
 import logging
 import os
-import copy
-from pathlib import Path
 from enum import Enum
 
 from PySide6.QtCore import QObject, Signal
+
+from app.core.database import Database, MigrationRunner
 
 logger = logging.getLogger(__name__)
 
@@ -209,49 +209,8 @@ ACTION_METADATA = {
 }
 
 
-def _empty_layout() -> dict:
-    """Cria um layout vazio (sem ações configuradas)."""
-    buttons = {}
-    for row in range(3):
-        for col in range(5):
-            buttons[f"{row},{col}"] = {
-                "action": ActionType.NONE.value,
-                "params": {},
-                "label": "",
-            }
-
-    pots = {}
-    for i in range(3):
-        pots[str(i)] = {
-            "action": ActionType.NONE.value,
-            "params": {},
-            "label": "",
-        }
-
-    return {"buttons": buttons, "pots": pots}
-
-
-def _default_config() -> dict:
-    """Configuração padrão com um layout vazio."""
-    return {
-        "layouts": {
-            "Layout 1": _empty_layout(),
-        },
-        "active_layout": "Layout 1",
-        "serial": {
-            "port": "",
-            "baudrate": 115200,
-        },
-        "obs": {
-            "host": "localhost",
-            "port": 4455,
-            "password": "",
-        },
-    }
-
-
 class ProfileManager(QObject):
-    """Gerencia layouts e configurações da aplicação."""
+    """Gerencia layouts e configurações da aplicação via SQLite."""
 
     layout_changed = Signal(str)          # Nome do layout ativo
     layouts_updated = Signal()            # Lista de layouts foi modificada
@@ -261,190 +220,404 @@ class ProfileManager(QObject):
         super().__init__(parent)
 
         if config_dir is None:
-            # Usa diretório local ao lado do app
             config_dir = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "config"
+                "config",
             )
 
-        self._config_dir = config_dir
-        self._config_path = os.path.join(config_dir, "config.json")
-        self._config = {}
+        os.makedirs(config_dir, exist_ok=True)
+        db_path = os.path.join(config_dir, "streamdeck.db")
 
-        self._ensure_config_dir()
-        self._load()
+        self._db = Database(db_path)
 
-    def _ensure_config_dir(self):
-        """Cria o diretório de configuração se não existir."""
-        os.makedirs(self._config_dir, exist_ok=True)
+        # Rodar migrations pendentes
+        runner = MigrationRunner(self._db)
+        runner.run_pending()
 
-    def _load(self):
-        """Carrega a configuração do disco."""
-        if os.path.exists(self._config_path):
-            try:
-                with open(self._config_path, "r", encoding="utf-8") as f:
-                    self._config = json.load(f)
-                logger.info("Configuração carregada de %s", self._config_path)
-            except (json.JSONDecodeError, IOError) as e:
-                logger.error("Erro ao carregar config: %s. Usando padrão.", e)
-                self._config = _default_config()
-        else:
-            self._config = _default_config()
-            self._save()
-            logger.info("Configuração padrão criada em %s", self._config_path)
+        logger.info("Configuração carregada de %s", db_path)
 
-    def _save(self):
-        """Salva a configuração no disco."""
-        try:
-            with open(self._config_path, "w", encoding="utf-8") as f:
-                json.dump(self._config, f, indent=2, ensure_ascii=False)
-            logger.debug("Configuração salva.")
-        except IOError as e:
-            logger.error("Erro ao salvar config: %s", e)
-
-    # ---- Layouts ----
+    # ── Layouts ──────────────────────────────────────────────
 
     def get_layout_names(self) -> list[str]:
         """Retorna nomes de todos os layouts."""
-        return list(self._config.get("layouts", {}).keys())
+        rows = self._db.fetchall("SELECT name FROM layouts ORDER BY id")
+        return [row["name"] for row in rows]
 
     def get_active_layout_name(self) -> str:
         """Retorna o nome do layout ativo."""
-        return self._config.get("active_layout", "")
+        row = self._db.fetchone("SELECT name FROM layouts WHERE is_active = 1")
+        if row:
+            return row["name"]
+        # Fallback: primeiro layout
+        row = self._db.fetchone("SELECT name FROM layouts ORDER BY id LIMIT 1")
+        return row["name"] if row else ""
 
     def get_active_layout(self) -> dict:
-        """Retorna os dados do layout ativo."""
+        """Retorna os dados do layout ativo no formato esperado pela GUI."""
         name = self.get_active_layout_name()
-        return self._config.get("layouts", {}).get(name, _empty_layout())
+        return self._get_layout_data(name)
+
+    def _get_layout_data(self, name: str) -> dict:
+        """Monta dict do layout a partir do banco."""
+        row = self._db.fetchone("SELECT id FROM layouts WHERE name = ?", (name,))
+        if not row:
+            return self._empty_layout_dict()
+
+        layout_id = row["id"]
+
+        # Botões
+        buttons = {}
+        for btn in self._db.fetchall(
+            "SELECT row, col, action, params, label FROM button_actions WHERE layout_id = ?",
+            (layout_id,),
+        ):
+            key = f"{btn['row']},{btn['col']}"
+            buttons[key] = {
+                "action": btn["action"],
+                "params": json.loads(btn["params"]),
+                "label": btn["label"],
+            }
+
+        # Preenche botões faltantes
+        for r in range(3):
+            for c in range(5):
+                key = f"{r},{c}"
+                if key not in buttons:
+                    buttons[key] = {
+                        "action": ActionType.NONE.value,
+                        "params": {},
+                        "label": "",
+                    }
+
+        # Potenciômetros
+        pots = {}
+        for pot in self._db.fetchall(
+            "SELECT pot_index, action, params, label FROM pot_actions WHERE layout_id = ?",
+            (layout_id,),
+        ):
+            pots[str(pot["pot_index"])] = {
+                "action": pot["action"],
+                "params": json.loads(pot["params"]),
+                "label": pot["label"],
+            }
+
+        for i in range(3):
+            if str(i) not in pots:
+                pots[str(i)] = {
+                    "action": ActionType.NONE.value,
+                    "params": {},
+                    "label": "",
+                }
+
+        return {"buttons": buttons, "pots": pots}
+
+    @staticmethod
+    def _empty_layout_dict() -> dict:
+        """Cria um dict de layout vazio (para compatibilidade)."""
+        buttons = {}
+        for row in range(3):
+            for col in range(5):
+                buttons[f"{row},{col}"] = {
+                    "action": ActionType.NONE.value,
+                    "params": {},
+                    "label": "",
+                }
+        pots = {}
+        for i in range(3):
+            pots[str(i)] = {
+                "action": ActionType.NONE.value,
+                "params": {},
+                "label": "",
+            }
+        return {"buttons": buttons, "pots": pots}
 
     def switch_layout(self, name: str) -> bool:
         """Troca para o layout especificado."""
-        if name not in self._config.get("layouts", {}):
+        row = self._db.fetchone("SELECT id FROM layouts WHERE name = ?", (name,))
+        if not row:
             logger.warning("Layout '%s' não encontrado.", name)
             return False
 
-        self._config["active_layout"] = name
-        self._save()
+        self._db.execute("UPDATE layouts SET is_active = 0")
+        self._db.execute(
+            "UPDATE layouts SET is_active = 1 WHERE name = ?", (name,)
+        )
+        self._db.commit()
         self.layout_changed.emit(name)
         logger.info("Layout trocado para '%s'.", name)
         return True
 
     def create_layout(self, name: str) -> bool:
         """Cria um novo layout vazio."""
-        if name in self._config.get("layouts", {}):
+        existing = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (name,)
+        )
+        if existing:
             logger.warning("Layout '%s' já existe.", name)
             return False
 
-        self._config.setdefault("layouts", {})[name] = _empty_layout()
-        self._save()
+        self._db.execute(
+            "INSERT INTO layouts (name, is_active) VALUES (?, 0)", (name,)
+        )
+        layout_id = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (name,)
+        )["id"]
+
+        # Criar botões vazios (3×5)
+        for row in range(3):
+            for col in range(5):
+                self._db.execute(
+                    """INSERT INTO button_actions
+                       (layout_id, row, col, action, params, label)
+                       VALUES (?, ?, ?, 'none', '{}', '')""",
+                    (layout_id, row, col),
+                )
+
+        # Criar pots vazios (3)
+        for i in range(3):
+            self._db.execute(
+                """INSERT INTO pot_actions
+                   (layout_id, pot_index, action, params, label)
+                   VALUES (?, ?, 'none', '{}', '')""",
+                (layout_id, i),
+            )
+
+        self._db.commit()
         self.layouts_updated.emit()
         logger.info("Layout '%s' criado.", name)
         return True
 
     def duplicate_layout(self, source_name: str, new_name: str) -> bool:
         """Duplica um layout existente."""
-        layouts = self._config.get("layouts", {})
-        if source_name not in layouts:
-            return False
-        if new_name in layouts:
+        source = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (source_name,)
+        )
+        if not source:
             return False
 
-        layouts[new_name] = copy.deepcopy(layouts[source_name])
-        self._save()
+        existing = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (new_name,)
+        )
+        if existing:
+            return False
+
+        source_id = source["id"]
+
+        # Criar novo layout
+        self._db.execute(
+            "INSERT INTO layouts (name, is_active) VALUES (?, 0)", (new_name,)
+        )
+        new_id = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (new_name,)
+        )["id"]
+
+        # Copiar botões
+        self._db.execute(
+            """INSERT INTO button_actions (layout_id, row, col, action, params, label)
+               SELECT ?, row, col, action, params, label
+               FROM button_actions WHERE layout_id = ?""",
+            (new_id, source_id),
+        )
+
+        # Copiar pots
+        self._db.execute(
+            """INSERT INTO pot_actions (layout_id, pot_index, action, params, label)
+               SELECT ?, pot_index, action, params, label
+               FROM pot_actions WHERE layout_id = ?""",
+            (new_id, source_id),
+        )
+
+        self._db.commit()
         self.layouts_updated.emit()
         logger.info("Layout '%s' duplicado como '%s'.", source_name, new_name)
         return True
 
     def rename_layout(self, old_name: str, new_name: str) -> bool:
         """Renomeia um layout."""
-        layouts = self._config.get("layouts", {})
-        if old_name not in layouts or new_name in layouts:
+        old = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (old_name,)
+        )
+        if not old:
             return False
 
-        layouts[new_name] = layouts.pop(old_name)
-        if self._config.get("active_layout") == old_name:
-            self._config["active_layout"] = new_name
-        self._save()
+        existing = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (new_name,)
+        )
+        if existing:
+            return False
+
+        self._db.execute(
+            "UPDATE layouts SET name = ? WHERE name = ?", (new_name, old_name)
+        )
+        self._db.commit()
         self.layouts_updated.emit()
         return True
 
     def delete_layout(self, name: str) -> bool:
         """Deleta um layout (não permite deletar o último)."""
-        layouts = self._config.get("layouts", {})
-        if name not in layouts or len(layouts) <= 1:
+        count = self._db.fetchone("SELECT COUNT(*) as cnt FROM layouts")["cnt"]
+        if count <= 1:
             return False
 
-        del layouts[name]
-        # Se deletou o ativo, troca para o primeiro disponível
-        if self._config.get("active_layout") == name:
-            self._config["active_layout"] = next(iter(layouts))
-            self.layout_changed.emit(self._config["active_layout"])
+        row = self._db.fetchone(
+            "SELECT id, is_active FROM layouts WHERE name = ?", (name,)
+        )
+        if not row:
+            return False
 
-        self._save()
+        was_active = row["is_active"]
+
+        # CASCADE deleta button_actions e pot_actions
+        self._db.execute("DELETE FROM layouts WHERE name = ?", (name,))
+
+        # Se deletou o ativo, ativa o primeiro disponível
+        if was_active:
+            first = self._db.fetchone("SELECT name FROM layouts ORDER BY id LIMIT 1")
+            if first:
+                self._db.execute(
+                    "UPDATE layouts SET is_active = 1 WHERE name = ?",
+                    (first["name"],),
+                )
+                self._db.commit()
+                self.layout_changed.emit(first["name"])
+            else:
+                self._db.commit()
+        else:
+            self._db.commit()
+
         self.layouts_updated.emit()
         logger.info("Layout '%s' deletado.", name)
         return True
 
-    # ---- Mapeamento de Botões e Potenciômetros ----
+    # ── Mapeamento de Botões e Potenciômetros ────────────────
 
     def get_button_action(self, row: int, col: int) -> dict:
         """Retorna a ação configurada para um botão no layout ativo."""
-        layout = self.get_active_layout()
-        key = f"{row},{col}"
-        return layout.get("buttons", {}).get(key, {
-            "action": ActionType.NONE.value,
-            "params": {},
-            "label": "",
-        })
+        layout_name = self.get_active_layout_name()
+        layout = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (layout_name,)
+        )
+        if not layout:
+            return {"action": ActionType.NONE.value, "params": {}, "label": ""}
+
+        btn = self._db.fetchone(
+            """SELECT action, params, label FROM button_actions
+               WHERE layout_id = ? AND row = ? AND col = ?""",
+            (layout["id"], row, col),
+        )
+        if not btn:
+            return {"action": ActionType.NONE.value, "params": {}, "label": ""}
+
+        return {
+            "action": btn["action"],
+            "params": json.loads(btn["params"]),
+            "label": btn["label"],
+        }
 
     def set_button_action(self, row: int, col: int, action: str, params: dict, label: str):
         """Define a ação de um botão no layout ativo."""
-        name = self.get_active_layout_name()
-        key = f"{row},{col}"
-        self._config["layouts"][name]["buttons"][key] = {
-            "action": action,
-            "params": params,
-            "label": label,
-        }
-        self._save()
+        layout_name = self.get_active_layout_name()
+        layout = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (layout_name,)
+        )
+        if not layout:
+            return
+
+        params_json = json.dumps(params)
+        self._db.execute(
+            """INSERT INTO button_actions (layout_id, row, col, action, params, label)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(layout_id, row, col)
+               DO UPDATE SET action=?, params=?, label=?""",
+            (layout["id"], row, col, action, params_json, label,
+             action, params_json, label),
+        )
+        self._db.commit()
         self.config_changed.emit()
 
     def get_pot_action(self, index: int) -> dict:
         """Retorna a ação configurada para um potenciômetro."""
-        layout = self.get_active_layout()
-        return layout.get("pots", {}).get(str(index), {
-            "action": ActionType.NONE.value,
-            "params": {},
-            "label": "",
-        })
+        layout_name = self.get_active_layout_name()
+        layout = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (layout_name,)
+        )
+        if not layout:
+            return {"action": ActionType.NONE.value, "params": {}, "label": ""}
+
+        pot = self._db.fetchone(
+            """SELECT action, params, label FROM pot_actions
+               WHERE layout_id = ? AND pot_index = ?""",
+            (layout["id"], index),
+        )
+        if not pot:
+            return {"action": ActionType.NONE.value, "params": {}, "label": ""}
+
+        return {
+            "action": pot["action"],
+            "params": json.loads(pot["params"]),
+            "label": pot["label"],
+        }
 
     def set_pot_action(self, index: int, action: str, params: dict, label: str):
         """Define a ação de um potenciômetro no layout ativo."""
-        name = self.get_active_layout_name()
-        self._config["layouts"][name]["pots"][str(index)] = {
-            "action": action,
-            "params": params,
-            "label": label,
-        }
-        self._save()
+        layout_name = self.get_active_layout_name()
+        layout = self._db.fetchone(
+            "SELECT id FROM layouts WHERE name = ?", (layout_name,)
+        )
+        if not layout:
+            return
+
+        params_json = json.dumps(params)
+        self._db.execute(
+            """INSERT INTO pot_actions (layout_id, pot_index, action, params, label)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(layout_id, pot_index)
+               DO UPDATE SET action=?, params=?, label=?""",
+            (layout["id"], index, action, params_json, label,
+             action, params_json, label),
+        )
+        self._db.commit()
         self.config_changed.emit()
 
-    # ---- Configurações de Conexão ----
+    # ── Configurações de Conexão ─────────────────────────────
+
+    def _get_setting(self, key: str, default: str = "") -> str:
+        """Retorna um valor de configuração."""
+        row = self._db.fetchone(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        )
+        return row["value"] if row else default
+
+    def _set_setting(self, key: str, value: str):
+        """Define um valor de configuração."""
+        self._db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+        self._db.commit()
 
     def get_serial_config(self) -> dict:
         """Retorna configurações da porta serial."""
-        return self._config.get("serial", {"port": "", "baudrate": 115200})
+        return {
+            "port": self._get_setting("serial_port", ""),
+            "baudrate": int(self._get_setting("serial_baudrate", "115200")),
+        }
 
     def set_serial_config(self, port: str, baudrate: int = 115200):
         """Salva configurações da porta serial."""
-        self._config["serial"] = {"port": port, "baudrate": baudrate}
-        self._save()
+        self._set_setting("serial_port", port)
+        self._set_setting("serial_baudrate", str(baudrate))
 
     def get_obs_config(self) -> dict:
         """Retorna configurações do OBS WebSocket."""
-        return self._config.get("obs", {"host": "localhost", "port": 4455, "password": ""})
+        return {
+            "host": self._get_setting("obs_host", "localhost"),
+            "port": int(self._get_setting("obs_port", "4455")),
+            "password": self._get_setting("obs_password", ""),
+        }
 
     def set_obs_config(self, host: str, port: int, password: str):
         """Salva configurações do OBS WebSocket."""
-        self._config["obs"] = {"host": host, "port": port, "password": password}
-        self._save()
+        self._set_setting("obs_host", host)
+        self._set_setting("obs_port", str(port))
+        self._set_setting("obs_password", password)

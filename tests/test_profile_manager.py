@@ -6,7 +6,6 @@ Usa diretório temporário para não interferir na configuração real.
 
 import json
 import os
-import tempfile
 
 import pytest
 from PySide6.QtWidgets import QApplication
@@ -15,8 +14,6 @@ from app.core.profile_manager import (
     ProfileManager,
     ActionType,
     ACTION_METADATA,
-    _empty_layout,
-    _default_config,
 )
 
 
@@ -45,68 +42,6 @@ def manager(qapp, tmp_config_dir):
 
 
 # ══════════════════════════════════════════════════════════════
-#  Testes do Layout Vazio e Config Padrão
-# ══════════════════════════════════════════════════════════════
-
-
-class TestEmptyLayout:
-    """Testes para a função _empty_layout."""
-
-    def test_has_buttons(self):
-        layout = _empty_layout()
-        assert "buttons" in layout
-
-    def test_has_pots(self):
-        layout = _empty_layout()
-        assert "pots" in layout
-
-    def test_15_buttons(self):
-        """3 linhas × 5 colunas = 15 botões."""
-        layout = _empty_layout()
-        assert len(layout["buttons"]) == 15
-
-    def test_3_pots(self):
-        layout = _empty_layout()
-        assert len(layout["pots"]) == 3
-
-    def test_button_keys_format(self):
-        """Chaves dos botões devem ser 'row,col'."""
-        layout = _empty_layout()
-        for row in range(3):
-            for col in range(5):
-                assert f"{row},{col}" in layout["buttons"]
-
-    def test_all_buttons_none(self):
-        """Todos os botões começam sem ação."""
-        layout = _empty_layout()
-        for btn in layout["buttons"].values():
-            assert btn["action"] == ActionType.NONE.value
-
-
-class TestDefaultConfig:
-    """Testes para _default_config."""
-
-    def test_has_layouts(self):
-        config = _default_config()
-        assert "layouts" in config
-
-    def test_has_active_layout(self):
-        config = _default_config()
-        assert "active_layout" in config
-        assert config["active_layout"] == "Layout 1"
-
-    def test_has_serial(self):
-        config = _default_config()
-        assert "serial" in config
-        assert config["serial"]["baudrate"] == 115200
-
-    def test_has_obs(self):
-        config = _default_config()
-        assert "obs" in config
-        assert config["obs"]["port"] == 4455
-
-
-# ══════════════════════════════════════════════════════════════
 #  Testes do ProfileManager
 # ══════════════════════════════════════════════════════════════
 
@@ -117,9 +52,9 @@ class TestProfileManagerInit:
     def test_creates_config_dir(self, manager, tmp_config_dir):
         assert os.path.isdir(tmp_config_dir)
 
-    def test_creates_config_file(self, manager, tmp_config_dir):
-        config_file = os.path.join(tmp_config_dir, "config.json")
-        assert os.path.isfile(config_file)
+    def test_creates_db_file(self, manager, tmp_config_dir):
+        db_file = os.path.join(tmp_config_dir, "streamdeck.db")
+        assert os.path.isfile(db_file)
 
     def test_default_layout_exists(self, manager):
         names = manager.get_layout_names()
@@ -290,3 +225,26 @@ class TestActionTypes:
     def test_action_values_are_strings(self):
         for action in ActionType:
             assert isinstance(action.value, str)
+
+
+class TestLayoutData:
+    """Testes para get_active_layout que retorna dict completo."""
+
+    def test_returns_dict_with_buttons_and_pots(self, manager):
+        layout = manager.get_active_layout()
+        assert "buttons" in layout
+        assert "pots" in layout
+
+    def test_has_15_buttons(self, manager):
+        layout = manager.get_active_layout()
+        assert len(layout["buttons"]) == 15
+
+    def test_has_3_pots(self, manager):
+        layout = manager.get_active_layout()
+        assert len(layout["pots"]) == 3
+
+    def test_button_keys_format(self, manager):
+        layout = manager.get_active_layout()
+        for row in range(3):
+            for col in range(5):
+                assert f"{row},{col}" in layout["buttons"]
