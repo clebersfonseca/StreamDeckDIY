@@ -24,6 +24,9 @@ Este projeto implementa um Stream Deck DIY completo, composto por duas partes:
 - 🔧 **Totalmente Configurável** — Cada botão e potenciômetro pode ser mapeado para qualquer ação disponível através da interface gráfica
 - 🌙 **Interface Dark Mode** — Tema escuro moderno com feedback visual em tempo real
 - 📌 **System Tray** — Minimiza para a bandeja do sistema com menu de acesso rápido
+- 💾 **Banco de Dados Seguro** — Dados e configurações salvas em SQLite com sistema de migração e versionamento de schema
+- 🔄 **Auto-Updater** — Verificação e atualização automática da aplicação integrada com GitHub Releases (com backup)
+- 🧪 **Alta Confiabilidade** — Bateria de testes unitários baseada em Mocks cobrindo as lógicas centrais e regras de negócio
 
 ---
 
@@ -155,7 +158,10 @@ StreamDeck/
 │   │   ├── profile_manager.py       # Gerenciador de layouts e configurações
 │   │   ├── action_dispatcher.py     # Roteador de eventos → ações
 │   │   ├── obs_controller.py        # Integração OBS WebSocket v5
-│   │   └── system_controller.py     # Controle do SO (volume, teclas, apps)
+│   │   ├── system_controller.py     # Controle do SO (volume, teclas, apps)
+│   │   ├── database.py              # Motor do banco de dados e Runner de migrações
+│   │   ├── updater.py               # Checagem e download de atualizações via GitHub API
+│   │   └── migrations/              # Scripts de versionamento do banco de dados (estilo Django)
 │   ├── gui/
 │   │   ├── main_window.py           # Janela principal (3 abas)
 │   │   ├── button_grid.py           # Widget da grade 3×5
@@ -164,7 +170,8 @@ StreamDeck/
 │   │   ├── tray_icon.py             # Ícone na bandeja do sistema
 │   │   └── styles.py                # Tema dark mode
 │   └── config/
-│       └── config.json              # Configurações e layouts (auto-gerado, não versionado)
+│       └── streamdeck.db            # Banco de dados SQLite principal (auto-gerado, não versionado)
+├── tests/                           # Suíte de testes automatizados (pytest)
 ├── requirements.txt                 # Dependências Python
 ├── .gitignore
 ├── LICENSE
