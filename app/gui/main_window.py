@@ -728,6 +728,17 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def _on_autostart_toggled(self, checked: bool):
         """Ativa ou desativa a inicialização automática com o Windows."""
+        import platform
+        if platform.system() != "Windows" and checked:
+            QMessageBox.information(
+                self, "Apenas Windows",
+                "A funcionalidade de inicialização automática está disponível exclusivamente para Windows no momento."
+            )
+            self._autostart_check.blockSignals(True)
+            self._autostart_check.setChecked(False)
+            self._autostart_check.blockSignals(False)
+            return
+
         self._profiles.set_system_config(checked)
         self._sys_ctrl.set_autostart(checked)
         status = "ativada" if checked else "desativada"
