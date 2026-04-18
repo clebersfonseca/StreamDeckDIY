@@ -28,3 +28,7 @@ Thumbs.db
 
 # PyInstaller
 *.exe
+
+# Auto-update
+_backup/
+_update_tmp/

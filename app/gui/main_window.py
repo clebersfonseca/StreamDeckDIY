@@ -9,19 +9,21 @@ MainWindow — Janela principal da aplicação StreamDeck DIY.
 
 import logging
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Slot, QTimer
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QPushButton, QGroupBox, QFormLayout,
     QLineEdit, QSpinBox, QStatusBar, QMessageBox, QInputDialog,
-    QSizePolicy, QFrame,
+    QSizePolicy, QFrame, QProgressBar, QCheckBox, QSystemTrayIcon,
 )
 
+from app import __version__
 from app.core.profile_manager import ProfileManager
 from app.core.serial_worker import SerialManager, SerialWorker
 from app.core.obs_controller import OBSController
 from app.core.system_controller import SystemController
 from app.core.action_dispatcher import ActionDispatcher
+from app.core.updater import UpdateChecker
 from app.gui.button_grid import ButtonGrid
 from app.gui.pot_widget import PotWidget
 from app.gui.action_dialog import ActionDialog
@@ -49,12 +51,16 @@ class MainWindow(QMainWindow):
         self._dispatcher = ActionDispatcher(
             self._profiles, self._obs, self._sys_ctrl
         )
+        self._updater = UpdateChecker()
 
         # ---- GUI ----
         self._setup_ui()
         self._setup_tray()
         self._connect_signals()
         self._load_config_to_ui()
+
+        # ---- Auto-check de atualizações (após 3s) ----
+        QTimer.singleShot(3000, self._auto_check_updates)
 
         # Status bar
         self._statusbar = QStatusBar()
@@ -225,7 +231,7 @@ class MainWindow(QMainWindow):
         return tab
 
     def _create_settings_tab(self) -> QWidget:
-        """Aba Configurações — serial, OBS, etc."""
+        """Aba Configurações — serial, OBS, atualizações."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setSpacing(16)
@@ -302,10 +308,63 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(obs_group)
 
+        # ---- Atualizações ----
+        update_group = QGroupBox("Atualizações")
+        update_layout = QVBoxLayout(update_group)
+
+        # Versão atual
+        version_row = QHBoxLayout()
+        version_icon = QLabel("📦")
+        version_icon.setFixedWidth(24)
+        version_row.addWidget(version_icon)
+
+        self._version_label = QLabel(f"Versão atual: v{__version__}")
+        self._version_label.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; color: {COLORS['accent_light']};"
+        )
+        version_row.addWidget(self._version_label)
+        version_row.addStretch()
+        update_layout.addLayout(version_row)
+
+        # Status da verificação
+        self._update_status = QLabel("")
+        self._update_status.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; padding: 4px 0;"
+        )
+        self._update_status.setWordWrap(True)
+        self._update_status.hide()
+        update_layout.addWidget(self._update_status)
+
+        # Barra de progresso (oculta)
+        self._update_progress = QProgressBar()
+        self._update_progress.setRange(0, 100)
+        self._update_progress.setValue(0)
+        self._update_progress.hide()
+        update_layout.addWidget(self._update_progress)
+
+        # Botão de verificar
+        btn_row = QHBoxLayout()
+        self._check_update_btn = QPushButton("🔍  Verificar Atualizações")
+        self._check_update_btn.setProperty("class", "primary")
+        self._check_update_btn.setMinimumHeight(36)
+        self._check_update_btn.clicked.connect(self._on_check_updates)
+        btn_row.addWidget(self._check_update_btn)
+        btn_row.addStretch()
+        update_layout.addLayout(btn_row)
+
+        layout.addWidget(update_group)
+
         layout.addStretch()
 
         # Refresh ports ao abrir
         self._refresh_ports()
+
+        # Conectar sinais do updater
+        self._updater.update_available.connect(self._on_update_available)
+        self._updater.no_update.connect(self._on_no_update)
+        self._updater.check_error.connect(self._on_update_error)
+        self._updater.download_progress.connect(self._on_download_progress)
+        self._updater.update_finished.connect(self._on_update_finished)
 
         return tab
 
@@ -655,6 +714,171 @@ class MainWindow(QMainWindow):
         """Mostra última ação executada."""
         self._last_action_label.setText(description)
         self._statusbar.showMessage(f"Ação: {description}", 3000)
+
+    # ==========================================================
+    # Auto-Update
+    # ==========================================================
+
+    def _auto_check_updates(self):
+        """Verificação automática silenciosa na inicialização."""
+        logger.info("Verificação automática de atualizações...")
+        self._auto_check = True
+        self._updater.check()
+
+    @Slot()
+    def _on_check_updates(self):
+        """Verificação manual pelo botão."""
+        self._auto_check = False
+        self._check_update_btn.setEnabled(False)
+        self._check_update_btn.setText("⏳  Verificando...")
+        self._update_status.setText("Consultando GitHub...")
+        self._update_status.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; padding: 4px 0;"
+        )
+        self._update_status.show()
+        self._update_progress.hide()
+        self._updater.check()
+
+    @Slot(dict)
+    def _on_update_available(self, info: dict):
+        """Nova versão encontrada."""
+        self._check_update_btn.setEnabled(True)
+        self._check_update_btn.setText("🔍  Verificar Atualizações")
+
+        remote = info["remote_tag"]
+        changelog = info.get("changelog", "") or "Sem changelog disponível."
+        zipball = info["zipball_url"]
+
+        self._update_status.setText(
+            f"🆕 Nova versão disponível: {remote}"
+        )
+        self._update_status.setStyleSheet(
+            f"color: {COLORS['cyan']}; font-weight: 700; padding: 4px 0;"
+        )
+        self._update_status.show()
+
+        # ── Diálogo de confirmação ──
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Nova Atualização Disponível")
+        msg.setIcon(QMessageBox.Information)
+        msg.setText(
+            f"<b>Nova versão disponível: {remote}</b><br><br>"
+            f"Versão atual: v{info['current']}<br><br>"
+            f"<b>Changelog:</b><br>{changelog}"
+        )
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.button(QMessageBox.Yes).setText("Atualizar Agora")
+        msg.button(QMessageBox.No).setText("Depois")
+
+        if msg.exec() != QMessageBox.Yes:
+            return
+
+        # ── Perguntar sobre backup ──
+        backup_msg = QMessageBox(self)
+        backup_msg.setWindowTitle("Backup")
+        backup_msg.setIcon(QMessageBox.Question)
+        backup_msg.setText(
+            "<b>Deseja criar um backup da versão atual antes de atualizar?</b><br><br>"
+            "<span style='color: #f59e0b;'>⚠ Muito recomendado!</span> "
+            "O backup será salvo na pasta <code>_backup/</code> do projeto, "
+            "permitindo restaurar a versão anterior caso necessário."
+        )
+        backup_msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        backup_msg.button(QMessageBox.Yes).setText("Sim, fazer backup")
+        backup_msg.button(QMessageBox.No).setText("Não, pular backup")
+        backup_msg.setDefaultButton(QMessageBox.Yes)
+
+        make_backup = backup_msg.exec() == QMessageBox.Yes
+
+        # ── Iniciar download ──
+        self._check_update_btn.setEnabled(False)
+        self._check_update_btn.setText("📥  Baixando...")
+        self._update_progress.setValue(0)
+        self._update_progress.show()
+        self._update_status.setText("Baixando e instalando atualização...")
+        self._update_status.setStyleSheet(
+            f"color: {COLORS['cyan']}; padding: 4px 0;"
+        )
+
+        self._updater.download_and_install(zipball, make_backup)
+
+    @Slot(str)
+    def _on_no_update(self, message: str):
+        """Já está na versão mais recente."""
+        self._check_update_btn.setEnabled(True)
+        self._check_update_btn.setText("🔍  Verificar Atualizações")
+
+        if getattr(self, '_auto_check', False):
+            # Check automático silencioso — só loga
+            logger.info(message)
+            self._auto_check = False
+            return
+
+        self._update_status.setText(message)
+        self._update_status.setStyleSheet(
+            f"color: {COLORS['green']}; font-weight: 600; padding: 4px 0;"
+        )
+        self._update_status.show()
+        self._statusbar.showMessage(message, 5000)
+
+    @Slot(str)
+    def _on_update_error(self, message: str):
+        """Erro ao verificar atualizações."""
+        self._check_update_btn.setEnabled(True)
+        self._check_update_btn.setText("🔍  Verificar Atualizações")
+
+        if getattr(self, '_auto_check', False):
+            # Check automático silencioso — só loga
+            logger.warning("Auto-check falhou: %s", message)
+            self._auto_check = False
+            return
+
+        self._update_status.setText(f"❌ {message}")
+        self._update_status.setStyleSheet(
+            f"color: {COLORS['red']}; padding: 4px 0;"
+        )
+        self._update_status.show()
+        self._update_progress.hide()
+
+    @Slot(int)
+    def _on_download_progress(self, percent: int):
+        """Atualiza barra de progresso do download."""
+        self._update_progress.setValue(percent)
+
+    @Slot(bool, str)
+    def _on_update_finished(self, success: bool, message: str):
+        """Instalação da atualização concluída."""
+        self._update_progress.hide()
+        self._check_update_btn.setEnabled(True)
+        self._check_update_btn.setText("🔍  Verificar Atualizações")
+
+        if success:
+            self._update_status.setText(f"✅ {message}")
+            self._update_status.setStyleSheet(
+                f"color: {COLORS['green']}; font-weight: 700; padding: 4px 0;"
+            )
+            self._update_status.show()
+
+            # Perguntar se deseja reiniciar
+            reply = QMessageBox.question(
+                self, "Atualização Concluída",
+                "A atualização foi instalada com sucesso!\n\n"
+                "Deseja reiniciar a aplicação agora para aplicar as mudanças?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                self._serial_mgr.cleanup()
+                self._obs.disconnect()
+                UpdateChecker.restart_application()
+        else:
+            self._update_status.setText(f"❌ {message}")
+            self._update_status.setStyleSheet(
+                f"color: {COLORS['red']}; font-weight: 600; padding: 4px 0;"
+            )
+            self._update_status.show()
+            QMessageBox.critical(
+                self, "Erro na Atualização", message
+            )
 
     # ==========================================================
     # Window Events
