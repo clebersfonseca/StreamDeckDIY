@@ -374,3 +374,55 @@ QPushButton:pressed {{
 STATUS_CONNECTED = f"color: {COLORS['green']}; font-weight: 700;"
 STATUS_DISCONNECTED = f"color: {COLORS['red']}; font-weight: 700;"
 STATUS_IDLE = f"color: {COLORS['text_muted']}; font-weight: 600;"
+
+# Cores por categoria de ação (para botões configurados)
+ACTION_COLORS = {
+    "OBS": {
+        "bg": "#1e3a5f",
+        "border": "#3b82f6",
+        "text": "#60a5fa",
+    },
+    "Sistema": {
+        "bg": "#3d2f1e",
+        "border": "#f59e0b",
+        "text": "#fbbf24",
+    },
+    "Aplicação": {
+        "bg": "#2f1e3d",
+        "border": "#a855f7",
+        "text": "#c084fc",
+    },
+    "Geral": {
+        "bg": COLORS["bg_card"],
+        "border": COLORS["border"],
+        "text": COLORS["text"],
+    },
+}
+
+# Ícones por tipo de ação
+ACTION_ICONS = {
+    "obs_switch_scene": "🎬",
+    "obs_toggle_source": "👁",
+    "obs_toggle_mute": "🔇",
+    "obs_start_streaming": "🔴",
+    "obs_stop_streaming": "⬛",
+    "obs_toggle_streaming": "📡",
+    "obs_start_recording": "⏺",
+    "obs_stop_recording": "⏹",
+    "obs_toggle_recording": "🎥",
+    "obs_toggle_virtual_cam": "📷",
+    "obs_source_volume": "🔊",
+    "sys_volume_up": "🔊",
+    "sys_volume_down": "🔉",
+    "sys_volume_mute": "🔇",
+    "sys_volume_set": "🎚",
+    "sys_media_play_pause": "▶",
+    "sys_media_next": "⏭",
+    "sys_media_prev": "⏮",
+    "sys_media_stop": "⏹",
+    "sys_hotkey": "⌨",
+    "sys_open_app": "📂",
+    "sys_run_command": "⚡",
+    "app_switch_layout": "📑",
+    "none": "○",
+}

@@ -134,11 +134,13 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setSpacing(12)
 
-        # Status de conexão
+        top_row = QHBoxLayout()
+        top_row.setSpacing(16)
+
         status_group = QGroupBox("Status de Conexão")
         status_layout = QHBoxLayout(status_group)
+        status_layout.setSpacing(24)
 
-        # Serial
         serial_frame = QVBoxLayout()
         serial_lbl = QLabel("Arduino Serial")
         serial_lbl.setStyleSheet(f"font-weight: 700; color: {COLORS['text']};")
@@ -148,13 +150,11 @@ class MainWindow(QMainWindow):
         serial_frame.addWidget(self._serial_status)
         status_layout.addLayout(serial_frame)
 
-        # Separador
         sep = QFrame()
         sep.setFrameShape(QFrame.VLine)
         sep.setStyleSheet(f"color: {COLORS['border']};")
         status_layout.addWidget(sep)
 
-        # OBS
         obs_frame = QVBoxLayout()
         obs_lbl = QLabel("OBS WebSocket")
         obs_lbl.setStyleSheet(f"font-weight: 700; color: {COLORS['text']};")
@@ -164,7 +164,6 @@ class MainWindow(QMainWindow):
         obs_frame.addWidget(self._obs_status)
         status_layout.addLayout(obs_frame)
 
-        # Último evento
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.VLine)
         sep2.setStyleSheet(f"color: {COLORS['border']};")
@@ -179,7 +178,29 @@ class MainWindow(QMainWindow):
         event_frame.addWidget(self._last_action_label)
         status_layout.addLayout(event_frame)
 
-        layout.addWidget(status_group)
+        top_row.addWidget(status_group, 2)
+
+        stats_group = QGroupBox("Estatísticas do Layout")
+        stats_layout = QVBoxLayout(stats_group)
+        stats_layout.setSpacing(8)
+
+        self._stats_buttons_configured = QLabel("Botões configurados: 0/15")
+        self._stats_buttons_configured.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        stats_layout.addWidget(self._stats_buttons_configured)
+
+        self._stats_pots_configured = QLabel("Pots configurados: 0/3")
+        self._stats_pots_configured.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        stats_layout.addWidget(self._stats_pots_configured)
+
+        self._quick_connect_btn = QPushButton("⚡ Conectar Tudo")
+        self._quick_connect_btn.setProperty("class", "primary")
+        self._quick_connect_btn.setFixedHeight(32)
+        self._quick_connect_btn.clicked.connect(self._quick_connect_all)
+        stats_layout.addWidget(self._quick_connect_btn)
+
+        top_row.addWidget(stats_group, 1)
+
+        layout.addLayout(top_row)
 
         # Grid de botões
         btn_group = QGroupBox("Botões (3×5)")
@@ -397,32 +418,28 @@ class MainWindow(QMainWindow):
         """Conecta todos os sinais entre componentes."""
         worker = self._serial_mgr.worker
 
-        # Serial → Dispatcher
         worker.button_event.connect(self._dispatcher.on_button_event)
         worker.pot_event.connect(self._dispatcher.on_pot_event)
 
-        # Serial → Dashboard (feedback visual)
         worker.button_event.connect(self._on_serial_button)
         worker.pot_event.connect(self._on_serial_pot)
 
-        # Serial status
         worker.connection_changed.connect(self._on_serial_status_changed)
         worker.error_occurred.connect(self._on_serial_error)
         worker.arduino_ready.connect(
             lambda: self._statusbar.showMessage("Arduino conectado e pronto!", 5000)
         )
 
-        # OBS status
         self._obs.connection_changed.connect(self._on_obs_status_changed)
         self._obs.error_occurred.connect(self._on_obs_error)
 
-        # Dispatcher
         self._dispatcher.layout_switch_requested.connect(self._on_layout_switch_request)
         self._dispatcher.action_executed.connect(self._on_action_executed)
 
-        # Profiles
         self._profiles.layouts_updated.connect(self._update_layout_combo)
         self._profiles.layouts_updated.connect(self._update_tray_layouts)
+        self._profiles.config_changed.connect(self._update_stats)
+        self._profiles.layout_changed.connect(lambda _: self._update_stats())
 
     def _load_config_to_ui(self):
         """Carrega configurações salvas na UI."""
@@ -444,6 +461,7 @@ class MainWindow(QMainWindow):
 
         # Layouts
         self._update_layout_combo()
+        self._update_stats()
 
     # ==========================================================
     # Layout Management
@@ -653,6 +671,31 @@ class MainWindow(QMainWindow):
     def _on_serial_disconnect(self):
         """Desconecta da porta serial."""
         self._serial_mgr.disconnect_serial()
+
+    def _update_stats(self):
+        """Atualiza estatísticas do layout."""
+        layout = self._profiles.get_active_layout()
+        if not layout:
+            return
+
+        buttons = layout.get("buttons", {})
+        configured = sum(
+            1 for b in buttons.values() if b.get("action") != "none"
+        )
+        self._stats_buttons_configured.setText(f"Botões configurados: {configured}/15")
+
+        pots = layout.get("pots", {})
+        configured_pots = sum(
+            1 for p in pots.values() if p.get("action") != "none"
+        )
+        self._stats_pots_configured.setText(f"Pots configurados: {configured_pots}/3")
+
+    def _quick_connect_all(self):
+        """Conecta serial e OBS automaticamente."""
+        port = self._port_combo.currentData()
+        if port:
+            self._on_serial_connect()
+        self._on_obs_connect()
 
     @Slot(bool)
     def _on_serial_status_changed(self, connected: bool):

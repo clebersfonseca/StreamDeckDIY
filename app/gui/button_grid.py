@@ -10,11 +10,14 @@ Mostra uma grade de botões que:
 from PySide6.QtCore import Signal, QTimer
 from PySide6.QtWidgets import QWidget, QGridLayout, QPushButton
 
-from app.core.profile_manager import ActionType, ProfileManager
+from app.core.profile_manager import ActionType, ProfileManager, ACTION_METADATA
 from app.gui.styles import (
     DECK_BUTTON_STYLE,
     DECK_BUTTON_ACTIVE_STYLE,
     DECK_BUTTON_CONFIGURED_STYLE,
+    COLORS,
+    ACTION_COLORS,
+    ACTION_ICONS,
 )
 
 
@@ -60,6 +63,36 @@ class ButtonGrid(QWidget):
                 layout.addWidget(btn, row, col)
                 self._buttons[(row, col)] = btn
 
+    def _get_button_style(self, action_type: str) -> str:
+        """Gera estilo dinâmico baseado no tipo de ação."""
+        metadata = ACTION_METADATA.get(ActionType(action_type), {})
+        category = metadata.get("category", "Geral")
+        color_info = ACTION_COLORS.get(category, ACTION_COLORS["Geral"])
+
+        return f"""
+QPushButton {{
+    background-color: {color_info['bg']};
+    color: {color_info['text']};
+    border: 2px solid {color_info['border']};
+    border-radius: 10px;
+    padding: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 80px;
+    min-height: 60px;
+}}
+
+QPushButton:hover {{
+    background-color: {COLORS['bg_hover']};
+    border-color: {color_info['text']};
+}}
+
+QPushButton:pressed {{
+    background-color: {color_info['border']};
+    border-color: {COLORS['accent_light']};
+}}
+"""
+
     def _update_labels(self):
         """Atualiza os textos e estilos dos botões baseado no layout ativo."""
         for (row, col), btn in self._buttons.items():
@@ -67,17 +100,18 @@ class ButtonGrid(QWidget):
             action_type = action.get("action", ActionType.NONE.value)
             label = action.get("label", "")
 
+            icon = ACTION_ICONS.get(action_type, ACTION_ICONS["none"])
+
             if action_type == ActionType.NONE.value:
                 btn.setText(f"{row},{col}")
                 btn.setStyleSheet(DECK_BUTTON_STYLE)
                 btn.setToolTip(f"Botão [{row},{col}]\nSem ação configurada\nClique para configurar")
             else:
                 display_text = label if label else action_type.replace("_", " ").title()
-                # Trunca texto longo
-                if len(display_text) > 14:
-                    display_text = display_text[:12] + "…"
-                btn.setText(display_text)
-                btn.setStyleSheet(DECK_BUTTON_CONFIGURED_STYLE)
+                if len(display_text) > 12:
+                    display_text = display_text[:10] + "…"
+                btn.setText(f"{icon} {display_text}")
+                btn.setStyleSheet(self._get_button_style(action_type))
                 btn.setToolTip(
                     f"Botão [{row},{col}]\n"
                     f"Ação: {action_type}\n"
@@ -86,21 +120,53 @@ class ButtonGrid(QWidget):
                 )
 
     def flash_button(self, row: int, col: int):
-        """Acende um botão momentaneamente (feedback visual de pressionamento)."""
+        """Acende um botão com animação."""
         key = (row, col)
         if key not in self._buttons:
             return
 
         btn = self._buttons[key]
-        original_style = btn.styleSheet()
-        btn.setStyleSheet(DECK_BUTTON_ACTIVE_STYLE)
+        action = self._profiles.get_button_action(row, col)
+        action_type = action.get("action", ActionType.NONE.value)
 
-        # Cancela timer anterior se existir
+        metadata = ACTION_METADATA.get(ActionType(action_type), {})
+        category = metadata.get("category", "Geral")
+        color_info = ACTION_COLORS.get(category, ACTION_COLORS["Geral"])
+
+        flash_style = f"""
+QPushButton {{
+    background-color: {color_info['border']};
+    color: white;
+    border: 2px solid {COLORS['accent_light']};
+    border-radius: 10px;
+    padding: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 80px;
+    min-height: 60px;
+}}
+"""
+
+        original_style = btn.styleSheet()
+        btn.setStyleSheet(flash_style)
+        btn.setGraphicsEffect(None)
+
         if key in self._flash_timers:
             self._flash_timers[key].stop()
+            del self._flash_timers[key]
 
         timer = QTimer(self)
         timer.setSingleShot(True)
-        timer.timeout.connect(lambda: btn.setStyleSheet(original_style))
-        timer.start(200)  # Flash de 200ms
+        timeout_count = [0]
+
+        def restore():
+            timeout_count[0] += 1
+            if timeout_count[0] >= 2:
+                btn.setStyleSheet(original_style)
+                timer.stop()
+            else:
+                btn.setStyleSheet(DECK_BUTTON_ACTIVE_STYLE)
+
+        timer.timeout.connect(restore)
+        timer.start(150)
         self._flash_timers[key] = timer
