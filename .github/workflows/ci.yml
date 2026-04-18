@@ -1,0 +1,54 @@
+name: CI — Testes
+
+on:
+  push:
+    branches: [master]
+
+# Impede execução simultânea
+concurrency:
+  group: ci-release
+  cancel-in-progress: false
+
+jobs:
+  # ════════════════════════════════════════════════
+  # Job 1: Rodar testes
+  # ════════════════════════════════════════════════
+  test:
+    # Não roda em commits de bump automático
+    if: "!contains(github.event.head_commit.message, '[auto-release]')"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências do sistema (Qt)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1 \
+            libegl1 \
+            libxkbcommon0 \
+            libdbus-1-3 \
+            libxcb-xinerama0 \
+            libxcb-cursor0
+
+      - name: Instalar dependências Python
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Rodar testes
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          pytest tests/ -v --tb=short --co -q 2>/dev/null || true
+          pytest tests/ -v --tb=short
+
+
