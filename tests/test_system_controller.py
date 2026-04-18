@@ -29,19 +29,19 @@ def sys_ctrl(qapp):
 class TestVolumeControls:
     """Testes de atalhos de volume (pyautogui)."""
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_volume_up(self, mock_pyautogui, sys_ctrl):
         sys_ctrl.volume_up()
         mock_pyautogui.press.assert_called_once_with("volumeup")
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_volume_down(self, mock_pyautogui, sys_ctrl):
         sys_ctrl.volume_down()
         mock_pyautogui.press.assert_called_once_with("volumedown")
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_volume_mute(self, mock_pyautogui, sys_ctrl):
         sys_ctrl.volume_mute()
@@ -73,25 +73,25 @@ class TestVolumeControls:
 class TestMediaControls:
     """Testes de controles de mídia (pyautogui)."""
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_media_play_pause(self, mock_pyautogui, sys_ctrl):
         sys_ctrl.media_play_pause()
         mock_pyautogui.press.assert_called_once_with("playpause")
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_media_next(self, mock_pyautogui, sys_ctrl):
         sys_ctrl.media_next()
         mock_pyautogui.press.assert_called_once_with("nexttrack")
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_media_prev(self, mock_pyautogui, sys_ctrl):
         sys_ctrl.media_prev()
         mock_pyautogui.press.assert_called_once_with("prevtrack")
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_media_stop(self, mock_pyautogui, sys_ctrl):
         sys_ctrl.media_stop()
@@ -101,13 +101,13 @@ class TestMediaControls:
 class TestHotkeys:
     """Testes de execução de atalhos e tradução de modificadores."""
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_hotkey_simple(self, mock_pyautogui, sys_ctrl):
         sys_ctrl.hotkey("ctrl+c")
         mock_pyautogui.hotkey.assert_called_once_with("ctrlleft", "c")
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_hotkey_complex(self, mock_pyautogui, sys_ctrl):
         sys_ctrl.hotkey("ctrl+shift+alt+a")
@@ -115,20 +115,20 @@ class TestHotkeys:
             "ctrlleft", "shiftleft", "altleft", "a"
         )
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_hotkey_win(self, mock_pyautogui, sys_ctrl):
         sys_ctrl.hotkey("win+d")
         mock_pyautogui.hotkey.assert_called_once_with("winleft", "d")
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", False)
     def test_hotkey_disabled_without_pyautogui(self, mock_pyautogui, sys_ctrl):
         """Se pyautogui não estiver instalado, hotkey não faz nada."""
         sys_ctrl.hotkey("ctrl+c")
         mock_pyautogui.hotkey.assert_not_called()
 
-    @patch("app.core.system_controller.pyautogui")
+    @patch("app.core.system_controller.pyautogui", create=True)
     @patch("app.core.system_controller.HAS_PYAUTOGUI", True)
     def test_hotkey_exception_emits_error(self, mock_pyautogui, sys_ctrl):
         """Erros ao executar atalho devem emitir o sinal de erro."""
