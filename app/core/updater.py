@@ -333,4 +333,6 @@ class UpdateChecker(QObject):
         """Reinicia a aplicação Python."""
         logger.info("Reiniciando aplicação...")
         python = sys.executable
-        os.execl(python, python, *sys.argv)
+        project_root = str(_project_root())
+        os.chdir(project_root)
+        os.execl(python, python, "-m", "app.main")
