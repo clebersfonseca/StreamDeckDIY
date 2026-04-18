@@ -37,3 +37,4 @@ Thumbs.db
 # Auto-update
 _backup/
 _update_tmp/
+.coverage
