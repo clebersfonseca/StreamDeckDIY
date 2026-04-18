@@ -30,7 +30,7 @@ REQUEST_TIMEOUT = 15  # segundos
 
 def _parse_version(tag: str) -> tuple[int, ...]:
     """Converte tag 'v1.2.3' em tupla (1, 2, 3) para comparação."""
-    clean = tag.lstrip("vV").strip()
+    clean = tag.strip().lstrip("vV")
     parts = []
     for part in clean.split("."):
         try:
