@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # pyautogui para media keys e hotkeys
 try:
     import pyautogui
-    pyautogui.FAILSAFE = False  # Desabilita failsafe (canto da tela)
+    pyautogui.FAILSAFE = True  # Habilita failsafe (canto da tela)
     HAS_PYAUTOGUI = True
 except (ImportError, KeyError) as e:
     HAS_PYAUTOGUI = False
