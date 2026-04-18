@@ -19,6 +19,7 @@ app/config/config.json.bak
 app/config/*.db
 app/config/*.db-journal
 app/config/*.db-wal
+app/config/*.db-shm
 
 # IDE
 .vscode/

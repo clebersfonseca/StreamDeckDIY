@@ -16,26 +16,9 @@ from app.gui.styles import COLORS
 
 
 def _create_default_icon() -> QIcon:
-    """Cria um ícone padrão para o system tray."""
-    pixmap = QPixmap(64, 64)
-    pixmap.fill(QColor("transparent"))
-
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-
-    # Fundo arredondado
-    painter.setBrush(QColor(COLORS["accent"]))
-    painter.setPen(QColor(COLORS["accent_light"]))
-    painter.drawRoundedRect(4, 4, 56, 56, 12, 12)
-
-    # Texto "SD"
-    painter.setPen(QColor("white"))
-    font = QFont("Arial", 20, QFont.Bold)
-    painter.setFont(font)
-    painter.drawText(pixmap.rect(), 0x0084, "SD")  # AlignCenter
-
-    painter.end()
-    return QIcon(pixmap)
+    from pathlib import Path
+    icon_path = Path(__file__).parent / "assets" / "icon.svg"
+    return QIcon(str(icon_path))
 
 
 class TrayIcon(QSystemTrayIcon):

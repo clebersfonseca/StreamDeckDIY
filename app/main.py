@@ -42,6 +42,12 @@ def main():
     # Aplica tema escuro
     app.setStyleSheet(DARK_THEME)
 
+    # Configura ícone da aplicação
+    from pathlib import Path
+    from PySide6.QtGui import QIcon
+    icon_path = Path(__file__).parent / "gui" / "assets" / "icon.svg"
+    app.setWindowIcon(QIcon(str(icon_path)))
+
     # Janela principal
     window = MainWindow()
     window.show()
