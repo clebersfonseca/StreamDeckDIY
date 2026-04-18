@@ -54,6 +54,11 @@ Este projeto implementa um Stream Deck DIY completo, composto por duas partes:
 
 ## ⚡ Hardware
 
+### 📦 Case 3D
+
+O modelo 3D oficial para impressão da case (gabinete) deste projeto está disponível no Cults3D:
+👉 **[Download do Modelo 3D da Case](https://cults3d.com/pt/modelo-3d/diversos/stream-deck-cleberfonseca)**
+
 ### Componentes
 
 | Componente | Quantidade | Descrição |
