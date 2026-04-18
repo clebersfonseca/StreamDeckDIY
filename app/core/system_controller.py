@@ -197,3 +197,47 @@ class SystemController(QObject):
         except Exception as e:
             self.error_occurred.emit(f"Erro ao executar comando: {e}")
             logger.error("Erro ao executar comando: %s", e)
+
+    def set_autostart(self, enabled: bool):
+        """Habilita ou desabilita a inicialização com o Windows."""
+        if platform.system() != "Windows":
+            logger.info("Autostart suportado apenas no Windows no momento.")
+            return
+
+        try:
+            import sys
+            from pathlib import Path
+
+            startup_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+            if not startup_dir.exists():
+                logger.error("Pasta Startup não encontrada.")
+                self.error_occurred.emit("Pasta Startup do Windows não encontrada.")
+                return
+
+            vbs_path = startup_dir / "StreamDeckDIY.vbs"
+
+            if enabled:
+                project_root = Path(__file__).resolve().parent.parent.parent
+                if getattr(sys, 'frozen', False):
+                    python_exe = sys.executable
+                    script_args = ""
+                else:
+                    python_exe = sys.executable.replace("python.exe", "pythonw.exe")
+                    if not Path(python_exe).exists():
+                        python_exe = sys.executable
+                    script_args = "-m app.main"
+
+                vbs_content = f'Set WshShell = CreateObject("WScript.Shell")\n' \
+                              f'WshShell.CurrentDirectory = "{project_root}"\n' \
+                              f'WshShell.Run """{python_exe}"" {script_args}", 0, False\n'
+                              
+                vbs_path.write_text(vbs_content, encoding="utf-8")
+                logger.info("Script de autostart criado em %s", vbs_path)
+            else:
+                if vbs_path.exists():
+                    vbs_path.unlink()
+                logger.info("Script de autostart removido.")
+
+        except Exception as e:
+            logger.exception("Erro ao configurar autostart")
+            self.error_occurred.emit(f"Erro ao configurar inicialização: {e}")

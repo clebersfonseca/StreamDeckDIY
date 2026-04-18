@@ -621,3 +621,14 @@ class ProfileManager(QObject):
         self._set_setting("obs_host", host)
         self._set_setting("obs_port", str(port))
         self._set_setting("obs_password", password)
+
+    def get_system_config(self) -> dict:
+        """Retorna configurações do sistema (ex: autostart)."""
+        return {
+            "autostart": self._get_setting("sys_autostart", "false").lower() == "true",
+        }
+
+    def set_system_config(self, autostart: bool):
+        """Salva configurações do sistema."""
+        self._set_setting("sys_autostart", "true" if autostart else "false")
+

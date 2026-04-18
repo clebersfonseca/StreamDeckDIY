@@ -308,6 +308,16 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(obs_group)
 
+        # ---- Sistema ----
+        sys_group = QGroupBox("Sistema")
+        sys_layout = QVBoxLayout(sys_group)
+        
+        self._autostart_check = QCheckBox("Iniciar automaticamente com o Windows (oculto na bandeja)")
+        self._autostart_check.toggled.connect(self._on_autostart_toggled)
+        sys_layout.addWidget(self._autostart_check)
+        
+        layout.addWidget(sys_group)
+
         # ---- Atualizações ----
         update_group = QGroupBox("Atualizações")
         update_layout = QVBoxLayout(update_group)
@@ -425,6 +435,12 @@ class MainWindow(QMainWindow):
         self._obs_host.setText(obs_cfg.get("host", "localhost"))
         self._obs_port.setValue(obs_cfg.get("port", 4455))
         self._obs_password.setText(obs_cfg.get("password", ""))
+
+        # Sistema (Autostart)
+        sys_cfg = self._profiles.get_system_config()
+        self._autostart_check.blockSignals(True)
+        self._autostart_check.setChecked(sys_cfg.get("autostart", False))
+        self._autostart_check.blockSignals(False)
 
         # Layouts
         self._update_layout_combo()
@@ -704,6 +720,18 @@ class MainWindow(QMainWindow):
     def _on_obs_error(self, msg: str):
         """Mostra erro OBS."""
         self._statusbar.showMessage(f"Erro OBS: {msg}", 8000)
+
+    # ==========================================================
+    # System Actions
+    # ==========================================================
+
+    @Slot(bool)
+    def _on_autostart_toggled(self, checked: bool):
+        """Ativa ou desativa a inicialização automática com o Windows."""
+        self._profiles.set_system_config(checked)
+        self._sys_ctrl.set_autostart(checked)
+        status = "ativada" if checked else "desativada"
+        self._statusbar.showMessage(f"Inicialização automática {status}.", 4000)
 
     # ==========================================================
     # Action Feedback
