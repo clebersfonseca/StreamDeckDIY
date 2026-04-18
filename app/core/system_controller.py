@@ -21,9 +21,9 @@ try:
     import pyautogui
     pyautogui.FAILSAFE = False  # Desabilita failsafe (canto da tela)
     HAS_PYAUTOGUI = True
-except ImportError:
+except (ImportError, KeyError) as e:
     HAS_PYAUTOGUI = False
-    logger.warning("pyautogui não instalado. Atalhos de teclado desabilitados.")
+    logger.warning("pyautogui não disponível (%s). Atalhos de teclado desabilitados.", e)
 
 # pycaw para controle preciso de volume (Windows only)
 HAS_PYCAW = False
