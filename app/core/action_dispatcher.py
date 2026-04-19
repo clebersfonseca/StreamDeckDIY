@@ -57,6 +57,7 @@ class ActionDispatcher(QObject):
         action_config = self._profiles.get_pot_action(index)
         action_type = action_config.get("action", ActionType.NONE.value)
         params = action_config.get("params", {})
+        inverted = action_config.get("inverted", False)
 
         if action_type == ActionType.NONE.value:
             return
@@ -64,8 +65,13 @@ class ActionDispatcher(QObject):
         # Converte valor do Arduino (0-1023) para 0.0-1.0
         normalized = value / 1023.0
 
-        logger.debug("Pot [%d] = %d (%.1f%%) → ação: %s",
-                      index, value, normalized * 100, action_type)
+        # Inverte se configurado (maior resistência = menor valor)
+        if inverted:
+            normalized = 1.0 - normalized
+
+        logger.debug("Pot [%d] = %d (%.1f%%) → ação: %s%s",
+                      index, value, normalized * 100, action_type,
+                      " (invertido)" if inverted else "")
 
         self._execute_pot_action(action_type, params, normalized)
 

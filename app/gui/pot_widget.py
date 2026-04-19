@@ -166,6 +166,7 @@ class PotWidget(QWidget):
             action = self._profiles.get_pot_action(i)
             action_type = action.get("action", ActionType.NONE.value)
             label = action.get("label", "")
+            inverted = action.get("inverted", False)
 
             metadata = ACTION_METADATA.get(ActionType(action_type), {})
             category = metadata.get("category", "Geral")
@@ -179,6 +180,8 @@ class PotWidget(QWidget):
                 self._gauges[i].set_color(COLORS["border"])
             else:
                 display = label if label else action_type.replace("_", " ").title()
+                if inverted:
+                    display = f"🔄 {display}"
                 self._action_labels[i].setText(display)
                 self._action_labels[i].setStyleSheet(
                     f"color: {color_info['text']}; font-size: 11px;"

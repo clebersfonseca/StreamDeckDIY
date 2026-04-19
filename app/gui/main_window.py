@@ -612,6 +612,7 @@ class MainWindow(QMainWindow):
                 result["action"],
                 result["params"],
                 result["label"],
+                result.get("inverted", False),
             )
 
     # ==========================================================

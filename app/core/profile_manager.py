@@ -292,13 +292,14 @@ class ProfileManager(QObject):
         # Potenciômetros
         pots = {}
         for pot in self._db.fetchall(
-            "SELECT pot_index, action, params, label FROM pot_actions WHERE layout_id = ?",
+            "SELECT pot_index, action, params, label, inverted FROM pot_actions WHERE layout_id = ?",
             (layout_id,),
         ):
             pots[str(pot["pot_index"])] = {
                 "action": pot["action"],
                 "params": json.loads(pot["params"]),
                 "label": pot["label"],
+                "inverted": bool(pot["inverted"]),
             }
 
         for i in range(3):
@@ -307,6 +308,7 @@ class ProfileManager(QObject):
                     "action": ActionType.NONE.value,
                     "params": {},
                     "label": "",
+                    "inverted": False,
                 }
 
         return {"buttons": buttons, "pots": pots}
@@ -328,6 +330,7 @@ class ProfileManager(QObject):
                 "action": ActionType.NONE.value,
                 "params": {},
                 "label": "",
+                "inverted": False,
             }
         return {"buttons": buttons, "pots": pots}
 
@@ -542,23 +545,24 @@ class ProfileManager(QObject):
             "SELECT id FROM layouts WHERE name = ?", (layout_name,)
         )
         if not layout:
-            return {"action": ActionType.NONE.value, "params": {}, "label": ""}
+            return {"action": ActionType.NONE.value, "params": {}, "label": "", "inverted": False}
 
         pot = self._db.fetchone(
-            """SELECT action, params, label FROM pot_actions
+            """SELECT action, params, label, inverted FROM pot_actions
                WHERE layout_id = ? AND pot_index = ?""",
             (layout["id"], index),
         )
         if not pot:
-            return {"action": ActionType.NONE.value, "params": {}, "label": ""}
+            return {"action": ActionType.NONE.value, "params": {}, "label": "", "inverted": False}
 
         return {
             "action": pot["action"],
             "params": json.loads(pot["params"]),
             "label": pot["label"],
+            "inverted": bool(pot["inverted"]),
         }
 
-    def set_pot_action(self, index: int, action: str, params: dict, label: str):
+    def set_pot_action(self, index: int, action: str, params: dict, label: str, inverted: bool = False):
         """Define a ação de um potenciômetro no layout ativo."""
         layout_name = self.get_active_layout_name()
         layout = self._db.fetchone(
@@ -568,13 +572,14 @@ class ProfileManager(QObject):
             return
 
         params_json = json.dumps(params)
+        inverted_int = 1 if inverted else 0
         self._db.execute(
-            """INSERT INTO pot_actions (layout_id, pot_index, action, params, label)
-               VALUES (?, ?, ?, ?, ?)
+            """INSERT INTO pot_actions (layout_id, pot_index, action, params, label, inverted)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(layout_id, pot_index)
-               DO UPDATE SET action=?, params=?, label=?""",
-            (layout["id"], index, action, params_json, label,
-             action, params_json, label),
+               DO UPDATE SET action=?, params=?, label=?, inverted=?""",
+            (layout["id"], index, action, params_json, label, inverted_int,
+             action, params_json, label, inverted_int),
         )
         self._db.commit()
         self.config_changed.emit()

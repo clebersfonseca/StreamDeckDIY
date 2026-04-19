@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QComboBox, QPushButton, QGroupBox,
-    QFileDialog,
+    QFileDialog, QCheckBox,
 )
 
 from app.core.profile_manager import ActionType, ACTION_METADATA
@@ -32,6 +32,7 @@ class ActionDialog(QDialog):
         self._result_action = current_action.get("action", ActionType.NONE.value)
         self._result_params = current_action.get("params", {})
         self._result_label = current_action.get("label", "")
+        self._result_inverted = current_action.get("inverted", False)
 
         self._setup_ui()
         self._load_current()
@@ -56,6 +57,22 @@ class ActionDialog(QDialog):
         self._params_group = QGroupBox("Parâmetros")
         self._params_layout = QFormLayout(self._params_group)
         layout.addWidget(self._params_group)
+
+        # ---- Opções do Potenciômetro ----
+        if self._for_pot:
+            pot_options_group = QGroupBox("Opções do Potenciômetro")
+            pot_options_layout = QVBoxLayout(pot_options_group)
+
+            self._inverted_check = QCheckBox(
+                "Inverter direção (maior resistência = menor valor)"
+            )
+            self._inverted_check.setToolTip(
+                "Quando ativado, o potenciômetro opera de forma invertida:\n"
+                "maior resistência produz menor volume/valor."
+            )
+            pot_options_layout.addWidget(self._inverted_check)
+
+            layout.addWidget(pot_options_group)
 
         # ---- Label ----
         label_group = QGroupBox("Exibição")
@@ -121,6 +138,7 @@ class ActionDialog(QDialog):
         """Carrega a ação atual no diálogo."""
         action = self._current_action.get("action", ActionType.NONE.value)
         label = self._current_action.get("label", "")
+        inverted = self._current_action.get("inverted", False)
 
         # Encontra e seleciona a ação no combo
         for i in range(self._action_combo.count()):
@@ -129,6 +147,9 @@ class ActionDialog(QDialog):
                 break
 
         self._label_input.setText(label)
+
+        if self._for_pot:
+            self._inverted_check.setChecked(inverted)
 
     def _on_action_changed(self, index: int):
         """Atualiza os campos de parâmetros quando a ação muda."""
@@ -204,6 +225,7 @@ class ActionDialog(QDialog):
         self._result_action = ActionType.NONE.value
         self._result_params = {}
         self._result_label = ""
+        self._result_inverted = False
         self.accept()
 
     def _on_save(self):
@@ -218,12 +240,19 @@ class ActionDialog(QDialog):
             self._result_params[name] = input_field.text().strip()
 
         self._result_label = self._label_input.text().strip()
+
+        if self._for_pot:
+            self._result_inverted = self._inverted_check.isChecked()
+
         self.accept()
 
     def get_result(self) -> dict:
         """Retorna o resultado da configuração."""
-        return {
+        result = {
             "action": self._result_action,
             "params": self._result_params,
             "label": self._result_label,
         }
+        if self._for_pot:
+            result["inverted"] = self._result_inverted
+        return result
