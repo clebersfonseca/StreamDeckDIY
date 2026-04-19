@@ -52,7 +52,7 @@ class TestVolumeControls:
     @patch("app.core.system_controller._IS_WINDOWS", False)
     def test_volume_set_linux(self, mock_platform, mock_run, sys_ctrl):
         """No Linux, volume_set deve chamar o pactl via subprocess."""
-        sys_ctrl._volume_interface = None
+        sys_ctrl._volume_endpoint = None
         sys_ctrl.volume_set(0.75) # 75%
         mock_run.assert_called_once_with(
             ["pactl", "set-sink-volume", "@DEFAULT_SINK@", "75%"],
@@ -60,14 +60,15 @@ class TestVolumeControls:
         )
 
     @patch("app.core.system_controller.platform.system", return_value="Windows")
+    @patch("app.core.system_controller._IS_WINDOWS", True)
     def test_volume_set_windows_pycaw(self, mock_platform, sys_ctrl):
         """No Windows, se pycaw estiver presente, usa a interface COM."""
-        # Configurar o mock da interface
-        mock_interface = MagicMock()
-        sys_ctrl._volume_interface = mock_interface
+        # Configurar o mock do endpoint
+        mock_endpoint = MagicMock()
+        sys_ctrl._volume_endpoint = mock_endpoint
 
         sys_ctrl.volume_set(0.5)
-        mock_interface.SetMasterVolumeLevelScalar.assert_called_once_with(0.5, None)
+        mock_endpoint.SetMasterVolumeLevelScalar.assert_called_once_with(0.5, None)
 
 
 class TestMediaControls:

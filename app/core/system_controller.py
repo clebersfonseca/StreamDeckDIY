@@ -27,31 +27,7 @@ except (ImportError, KeyError) as e:
     logger.warning("pyautogui não disponível (%s). Atalhos de teclado desabilitados.", e)
 
 # pycaw para controle preciso de volume (Windows only)
-# Importação lazy para evitar conflito COM com PySide6/Qt
 _IS_WINDOWS = platform.system() == "Windows"
-
-# Script Python auxiliar para controle de volume no Windows.
-# Roda em processo separado com COM independente do Qt.
-_VOLUME_HELPER_SCRIPT = r"""
-import sys
-import comtypes
-comtypes.CoInitialize()
-from ctypes import cast, POINTER
-from comtypes import CLSCTX_ALL
-from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-
-devices = AudioUtilities.GetSpeakers()
-interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-volume = cast(interface, POINTER(IAudioEndpointVolume))
-sys.stdout.write("READY\n")
-sys.stdout.flush()
-for line in sys.stdin:
-    try:
-        val = float(line.strip())
-        volume.SetMasterVolumeLevelScalar(max(0.0, min(1.0, val)), None)
-    except Exception:
-        pass
-"""
 
 
 class SystemController(QObject):
@@ -61,101 +37,23 @@ class SystemController(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._volume_interface = None
-        self._volume_process = None  # Processo auxiliar para volume no Windows
-        self._pycaw_available = None  # None = não tentou, True/False = resultado
+        self._volume_endpoint = None
         self._init_volume()
 
     def _init_volume(self):
-        """Inicializa a interface de volume do sistema (Windows)."""
+        """Inicializa a interface de volume do sistema (Windows via pycaw)."""
         if not _IS_WINDOWS:
             return
 
-        # Tenta importação direta (pode funcionar se COM estiver ok)
         try:
-            import comtypes
-            comtypes.CoInitialize()
-
-            from ctypes import cast, POINTER
-            from comtypes import CLSCTX_ALL
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(
-                IAudioEndpointVolume._iid_, CLSCTX_ALL, None
-            )
-            self._volume_interface = cast(
-                interface, POINTER(IAudioEndpointVolume)
-            )
-            self._pycaw_available = True
-            logger.info("Interface de volume inicializada (pycaw direto).")
-            return
-        except ImportError as e:
-            logger.warning("pycaw/comtypes não instalado: %s", e)
-            self._pycaw_available = False
-            return
+            from pycaw.pycaw import AudioUtilities
+            speakers = AudioUtilities.GetSpeakers()
+            self._volume_endpoint = speakers.EndpointVolume
+            logger.info("Interface de volume do Windows inicializada (pycaw).")
+        except ImportError:
+            logger.warning("pycaw não instalado. Instale com: pip install pycaw")
         except Exception as e:
-            logger.info(
-                "pycaw direto falhou (%s: %s). Tentando via subprocesso...",
-                type(e).__name__, e
-            )
-
-        # Fallback: subprocesso persistente com COM independente
-        self._start_volume_helper()
-
-    def _start_volume_helper(self):
-        """Inicia processo auxiliar para controle de volume (Windows)."""
-        if self._volume_process and self._volume_process.poll() is None:
-            return  # Já está rodando
-
-        try:
-            creation_flags = 0
-            if _IS_WINDOWS:
-                creation_flags = subprocess.CREATE_NO_WINDOW
-
-            self._volume_process = subprocess.Popen(
-                [sys.executable, "-c", _VOLUME_HELPER_SCRIPT],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                creationflags=creation_flags,
-            )
-
-            # Aguarda o READY do helper (com timeout manual)
-            ready_line = self._volume_process.stdout.readline()
-
-            if self._volume_process.poll() is not None:
-                # Processo morreu durante inicialização
-                stderr = self._volume_process.stderr.read()
-                logger.error("Helper de volume falhou ao iniciar: %s", stderr.strip())
-                self._volume_process = None
-                self._pycaw_available = False
-            elif "READY" in ready_line:
-                self._pycaw_available = True
-                logger.info("Helper de volume iniciado (subprocesso pycaw).")
-            else:
-                logger.error("Helper de volume não respondeu READY: %s", ready_line.strip())
-                self._volume_process = None
-                self._pycaw_available = False
-
-        except Exception as e:
-            logger.error("Erro ao iniciar helper de volume: %s", e)
-            self._volume_process = None
-            self._pycaw_available = False
-
-    def _stop_volume_helper(self):
-        """Para o processo auxiliar de volume."""
-        if self._volume_process:
-            try:
-                self._volume_process.stdin.close()
-                self._volume_process.wait(timeout=2)
-            except Exception:
-                try:
-                    self._volume_process.kill()
-                except Exception:
-                    pass
-            self._volume_process = None
+            logger.error("Erro ao inicializar pycaw (%s: %s).", type(e).__name__, e)
 
     # ---- Volume ----
 
@@ -181,40 +79,29 @@ class SystemController(QObject):
         """
         Define o volume do sistema para um valor específico (0.0 a 1.0).
 
-        Usa pycaw no Windows para controle preciso (direto ou via subprocesso).
+        Usa pycaw no Windows para controle preciso.
         No Linux, usa pactl como fallback.
         """
         clamped = max(0.0, min(1.0, value))
 
-        # Opção 1: pycaw direto (Windows — sem conflito COM)
-        if self._volume_interface:
-            try:
-                self._volume_interface.SetMasterVolumeLevelScalar(clamped, None)
-                logger.debug("Volume definido para %.0f%% (pycaw)", clamped * 100)
-                return
-            except Exception as e:
-                logger.error("Erro pycaw ao definir volume: %s", e)
-                self._volume_interface = None
-
-        # Opção 2: subprocesso pycaw (Windows — COM independente)
         if _IS_WINDOWS:
-            if self._volume_set_via_helper(clamped):
-                return
-
-            # Tenta reiniciar o helper se não está rodando
-            if self._pycaw_available is not False:
-                logger.info("Reiniciando helper de volume...")
-                self._start_volume_helper()
-                if self._volume_set_via_helper(clamped):
+            # Tenta re-inicializar caso tenha falhado anteriormente
+            if not self._volume_endpoint:
+                self._init_volume()
+                
+            if self._volume_endpoint:
+                try:
+                    self._volume_endpoint.SetMasterVolumeLevelScalar(clamped, None)
+                    logger.debug("Volume definido para %.0f%% (pycaw)", clamped * 100)
                     return
-
-            logger.warning(
-                "Controle de volume indisponível. "
-                "Instale pycaw e comtypes: pip install pycaw comtypes"
-            )
+                except Exception as e:
+                    logger.error("Erro pycaw ao definir volume: %s", e)
+                    self._volume_endpoint = None
+            else:
+                logger.warning("Controle de volume indisponível. Verifique a instalação do pycaw.")
             return
 
-        # Opção 3: pactl (Linux)
+        # Opção: pactl (Linux)
         if platform.system() == "Linux":
             percent = int(clamped * 100)
             try:
@@ -228,22 +115,6 @@ class SystemController(QObject):
             return
 
         logger.warning("Controle preciso de volume não disponível para este sistema.")
-
-    def _volume_set_via_helper(self, value: float) -> bool:
-        """Envia comando de volume para o processo auxiliar. Retorna True se ok."""
-        if not self._volume_process or self._volume_process.poll() is not None:
-            self._volume_process = None
-            return False
-
-        try:
-            self._volume_process.stdin.write(f"{value:.6f}\n")
-            self._volume_process.stdin.flush()
-            logger.debug("Volume definido para %.0f%% (helper)", value * 100)
-            return True
-        except (BrokenPipeError, OSError) as e:
-            logger.warning("Helper de volume desconectou: %s", e)
-            self._volume_process = None
-            return False
 
     # ---- Media Keys ----
 
