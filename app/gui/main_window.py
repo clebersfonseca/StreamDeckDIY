@@ -264,8 +264,8 @@ class MainWindow(QMainWindow):
 
     def _create_settings_tab(self) -> QWidget:
         """Aba Configurações — serial, OBS, atualizações."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setSpacing(16)
 
         # ---- Serial ----
@@ -408,7 +408,12 @@ class MainWindow(QMainWindow):
         self._updater.download_progress.connect(self._on_download_progress)
         self._updater.update_finished.connect(self._on_update_finished)
 
-        return tab
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+
+        return scroll
 
     def _setup_tray(self):
         """Configura o system tray icon."""
