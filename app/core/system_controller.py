@@ -33,8 +33,8 @@ if platform.system() == "Windows":
         from comtypes import CLSCTX_ALL
         from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
         HAS_PYCAW = True
-    except ImportError:
-        logger.warning("pycaw não instalado. Controle de volume preciso desabilitado.")
+    except Exception as e:
+        logger.warning("pycaw não disponível (%s). Controle de volume preciso desabilitado.", e)
 
 
 class SystemController(QObject):
@@ -89,6 +89,11 @@ class SystemController(QObject):
         Usa pycaw no Windows para controle preciso.
         No Linux, usa pactl como fallback.
         """
+        # Tenta re-inicializar a interface se pycaw está disponível mas não foi inicializado
+        if HAS_PYCAW and not self._volume_interface:
+            logger.info("Re-tentando inicializar interface de volume...")
+            self._init_volume()
+
         if HAS_PYCAW and self._volume_interface:
             try:
                 self._volume_interface.SetMasterVolumeLevelScalar(
@@ -97,6 +102,7 @@ class SystemController(QObject):
                 logger.debug("Volume definido para %.0f%%", value * 100)
             except Exception as e:
                 logger.error("Erro ao definir volume: %s", e)
+                self._volume_interface = None  # Força re-init na próxima tentativa
         elif platform.system() == "Linux":
             # Fallback para Linux usando pactl
             percent = int(max(0, min(100, value * 100)))
@@ -109,7 +115,13 @@ class SystemController(QObject):
             except (subprocess.CalledProcessError, FileNotFoundError) as e:
                 logger.error("Erro ao definir volume via pactl: %s", e)
         else:
-            logger.warning("Controle preciso de volume não disponível.")
+            if platform.system() == "Windows":
+                logger.warning(
+                    "Controle de volume não disponível. "
+                    "Verifique se pycaw e comtypes estão instalados: pip install pycaw comtypes"
+                )
+            else:
+                logger.warning("Controle preciso de volume não disponível para este sistema.")
 
     # ---- Media Keys ----
 
