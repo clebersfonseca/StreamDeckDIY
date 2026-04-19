@@ -988,5 +988,6 @@ class MainWindow(QMainWindow):
         """Encerra a aplicação."""
         self._serial_mgr.cleanup()
         self._obs.disconnect()
+        self._sys_ctrl._stop_volume_helper()
         from PySide6.QtWidgets import QApplication
         QApplication.instance().quit()
