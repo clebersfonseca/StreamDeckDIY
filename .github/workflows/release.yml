@@ -1,0 +1,113 @@
+name: Release Manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Tipo de atualização (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Obter última versão e calcular próxima
+        id: version
+        run: |
+          # Busca a tag mais recente no formato v*
+          LATEST=$(git tag -l 'v*' --sort=-version:refname | head -n1)
+
+          if [ -z "$LATEST" ]; then
+            LATEST="v0.0.0"
+          fi
+
+          echo "Última versão: $LATEST"
+          echo "latest=$LATEST" >> $GITHUB_OUTPUT
+
+          # Extrair versão
+          VERSION=${LATEST#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          # Calcular nova versão baseado no input do usuário
+          BUMP_TYPE="${{ github.event.inputs.bump_type }}"
+          
+          if [ "$BUMP_TYPE" = "major" ]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif [ "$BUMP_TYPE" = "minor" ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            # Default para patch
+            PATCH=$((PATCH + 1))
+          fi
+
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          NEW_TAG="v$NEW_VERSION"
+
+          echo "Nova versão: $NEW_TAG"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+
+      - name: Atualizar __version__ no código
+        run: |
+          sed -i 's/__version__ = ".*"/__version__ = "${{ steps.version.outputs.new_version }}"/' app/__init__.py
+          echo "Versão atualizada para: $(grep __version__ app/__init__.py)"
+
+      - name: Commit da nova versão
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/__init__.py
+          git diff --cached --quiet && echo "Nenhuma mudança" && exit 0
+          git commit -m "bump: versão ${{ steps.version.outputs.new_tag }} [auto-release]"
+          git push
+
+      - name: Criar tag
+        run: |
+          git tag -a ${{ steps.version.outputs.new_tag }} \
+            -m "Release ${{ steps.version.outputs.new_tag }}"
+          git push origin ${{ steps.version.outputs.new_tag }}
+
+      - name: Gerar changelog
+        id: changelog
+        run: |
+          PREV_TAG=${{ steps.version.outputs.latest }}
+
+          if [ "$PREV_TAG" = "v0.0.0" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" -20)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" ${PREV_TAG}..HEAD~1)
+          fi
+
+          # Salva changelog em arquivo
+          echo "$CHANGELOG" > /tmp/changelog.md
+
+          # Preview
+          echo "=== Changelog ==="
+          cat /tmp/changelog.md
+
+      - name: Criar GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ steps.version.outputs.new_tag }} \
+            --title "🚀 Release ${{ steps.version.outputs.new_tag }}" \
+            --notes-file /tmp/changelog.md \
+            --latest
