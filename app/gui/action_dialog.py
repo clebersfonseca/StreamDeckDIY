@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QComboBox, QPushButton, QGroupBox,
-    QFileDialog, QCheckBox,
+    QFileDialog, QCheckBox, QWidget,
 )
 
 from app.core.profile_manager import ActionType, ACTION_METADATA
