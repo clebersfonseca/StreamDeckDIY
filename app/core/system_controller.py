@@ -26,15 +26,8 @@ except (ImportError, KeyError) as e:
     logger.warning("pyautogui não disponível (%s). Atalhos de teclado desabilitados.", e)
 
 # pycaw para controle preciso de volume (Windows only)
-HAS_PYCAW = False
-if platform.system() == "Windows":
-    try:
-        from ctypes import cast, POINTER
-        from comtypes import CLSCTX_ALL
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-        HAS_PYCAW = True
-    except Exception as e:
-        logger.warning("pycaw não disponível (%s). Controle de volume preciso desabilitado.", e)
+# Importação lazy para evitar conflito COM com PySide6/Qt
+_IS_WINDOWS = platform.system() == "Windows"
 
 
 class SystemController(QObject):
@@ -45,22 +38,45 @@ class SystemController(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._volume_interface = None
+        self._pycaw_available = None  # None = não tentou, True/False = resultado
         self._init_volume()
 
     def _init_volume(self):
         """Inicializa a interface de volume do sistema (Windows)."""
-        if HAS_PYCAW:
-            try:
-                devices = AudioUtilities.GetSpeakers()
-                interface = devices.Activate(
-                    IAudioEndpointVolume._iid_, CLSCTX_ALL, None
-                )
-                self._volume_interface = cast(
-                    interface, POINTER(IAudioEndpointVolume)
-                )
-                logger.info("Interface de volume do Windows inicializada.")
-            except Exception as e:
-                logger.error("Erro ao inicializar volume: %s", e)
+        if not _IS_WINDOWS:
+            return
+
+        try:
+            # Importação lazy — evita conflito COM no nível de módulo
+            import comtypes
+            comtypes.CoInitialize()  # Garante inicialização COM na thread atual
+
+            from ctypes import cast, POINTER
+            from comtypes import CLSCTX_ALL
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(
+                IAudioEndpointVolume._iid_, CLSCTX_ALL, None
+            )
+            self._volume_interface = cast(
+                interface, POINTER(IAudioEndpointVolume)
+            )
+            self._pycaw_available = True
+            logger.info("Interface de volume do Windows inicializada (pycaw).")
+        except ImportError as e:
+            self._pycaw_available = False
+            logger.warning(
+                "pycaw/comtypes não instalado (%s). "
+                "Usando fallback PowerShell para volume.", e
+            )
+        except Exception as e:
+            self._pycaw_available = False
+            logger.warning(
+                "Falha ao inicializar pycaw (%s: %s). "
+                "Usando fallback PowerShell para volume.",
+                type(e).__name__, e
+            )
 
     # ---- Volume ----
 
@@ -88,24 +104,29 @@ class SystemController(QObject):
 
         Usa pycaw no Windows para controle preciso.
         No Linux, usa pactl como fallback.
+        No Windows sem pycaw, usa PowerShell como fallback.
         """
-        # Tenta re-inicializar a interface se pycaw está disponível mas não foi inicializado
-        if HAS_PYCAW and not self._volume_interface:
-            logger.info("Re-tentando inicializar interface de volume...")
+        clamped = max(0.0, min(1.0, value))
+
+        # Tenta re-inicializar se ainda não tentou ou falhou anteriormente
+        if _IS_WINDOWS and not self._volume_interface and self._pycaw_available is not False:
+            logger.info("Tentando inicializar interface de volume...")
             self._init_volume()
 
-        if HAS_PYCAW and self._volume_interface:
+        # Opção 1: pycaw (Windows — controle preciso)
+        if self._volume_interface:
             try:
-                self._volume_interface.SetMasterVolumeLevelScalar(
-                    max(0.0, min(1.0, value)), None
-                )
-                logger.debug("Volume definido para %.0f%%", value * 100)
+                self._volume_interface.SetMasterVolumeLevelScalar(clamped, None)
+                logger.debug("Volume definido para %.0f%% (pycaw)", clamped * 100)
+                return
             except Exception as e:
-                logger.error("Erro ao definir volume: %s", e)
-                self._volume_interface = None  # Força re-init na próxima tentativa
-        elif platform.system() == "Linux":
-            # Fallback para Linux usando pactl
-            percent = int(max(0, min(100, value * 100)))
+                logger.error("Erro pycaw ao definir volume: %s", e)
+                self._volume_interface = None
+                self._pycaw_available = None  # Permite re-tentativa
+
+        # Opção 2: pactl (Linux)
+        if platform.system() == "Linux":
+            percent = int(clamped * 100)
             try:
                 subprocess.run(
                     ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{percent}%"],
@@ -114,14 +135,75 @@ class SystemController(QObject):
                 logger.debug("Volume definido para %d%% via pactl", percent)
             except (subprocess.CalledProcessError, FileNotFoundError) as e:
                 logger.error("Erro ao definir volume via pactl: %s", e)
-        else:
-            if platform.system() == "Windows":
-                logger.warning(
-                    "Controle de volume não disponível. "
-                    "Verifique se pycaw e comtypes estão instalados: pip install pycaw comtypes"
-                )
+            return
+
+        # Opção 3: PowerShell (Windows — fallback sem pycaw)
+        if _IS_WINDOWS:
+            self._volume_set_powershell(clamped)
+            return
+
+        logger.warning("Controle preciso de volume não disponível para este sistema.")
+
+    def _volume_set_powershell(self, value: float):
+        """Fallback: define volume via PowerShell no Windows."""
+        # Usa a API de áudio do Windows via PowerShell/C#
+        ps_script = f"""
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioEndpointVolume {{
+    int NotImpl0(); int NotImpl1(); int NotImpl2();
+    int GetMasterVolumeLevelScalar(out float level);
+    int SetMasterVolumeLevelScalar(float level, ref Guid eventContext);
+    int NotImpl3();
+    int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid eventContext);
+    int GetMute(out bool mute);
+}}
+
+[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDevice {{
+    int Activate(ref Guid iid, int clsCtx, IntPtr pParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+}}
+
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceEnumerator {{
+    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+}}
+
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+class MMDeviceEnumerator {{}}
+
+public class AudioManager {{
+    public static void SetVolume(float level) {{
+        var enumerator = new MMDeviceEnumerator() as IMMDeviceEnumerator;
+        IMMDevice device;
+        enumerator.GetDefaultAudioEndpoint(0, 1, out device);
+        Guid iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+        object iface;
+        device.Activate(ref iid, 23, IntPtr.Zero, out iface);
+        var volume = iface as IAudioEndpointVolume;
+        Guid empty = Guid.Empty;
+        volume.SetMasterVolumeLevelScalar(level, ref empty);
+    }}
+}}
+'@
+[AudioManager]::SetVolume({value:.6f})
+"""
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                logger.debug("Volume definido para %.0f%% via PowerShell", value * 100)
             else:
-                logger.warning("Controle preciso de volume não disponível para este sistema.")
+                logger.error("Erro PowerShell ao definir volume: %s", result.stderr.strip())
+        except subprocess.TimeoutExpired:
+            logger.error("Timeout ao definir volume via PowerShell")
+        except FileNotFoundError:
+            logger.error("PowerShell não encontrado. Controle de volume indisponível.")
 
     # ---- Media Keys ----
 

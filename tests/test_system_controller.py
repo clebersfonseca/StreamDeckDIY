@@ -49,16 +49,16 @@ class TestVolumeControls:
 
     @patch("app.core.system_controller.subprocess.run")
     @patch("app.core.system_controller.platform.system", return_value="Linux")
-    @patch("app.core.system_controller.HAS_PYCAW", False)
+    @patch("app.core.system_controller._IS_WINDOWS", False)
     def test_volume_set_linux(self, mock_platform, mock_run, sys_ctrl):
         """No Linux, volume_set deve chamar o pactl via subprocess."""
+        sys_ctrl._volume_interface = None
         sys_ctrl.volume_set(0.75) # 75%
         mock_run.assert_called_once_with(
             ["pactl", "set-sink-volume", "@DEFAULT_SINK@", "75%"],
             check=True, capture_output=True
         )
 
-    @patch("app.core.system_controller.HAS_PYCAW", True)
     @patch("app.core.system_controller.platform.system", return_value="Windows")
     def test_volume_set_windows_pycaw(self, mock_platform, sys_ctrl):
         """No Windows, se pycaw estiver presente, usa a interface COM."""
