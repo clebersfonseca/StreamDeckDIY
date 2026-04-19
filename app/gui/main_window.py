@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel, QComboBox, QPushButton, QGroupBox, QFormLayout,
     QLineEdit, QSpinBox, QStatusBar, QMessageBox, QInputDialog,
     QSizePolicy, QFrame, QProgressBar, QCheckBox, QSystemTrayIcon,
+    QScrollArea,
 )
 
 from app import __version__
@@ -130,8 +131,8 @@ class MainWindow(QMainWindow):
 
     def _create_dashboard_tab(self) -> QWidget:
         """Aba Dashboard — visualização em tempo real."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setSpacing(12)
 
         top_row = QHBoxLayout()
@@ -218,12 +219,17 @@ class MainWindow(QMainWindow):
         pot_layout.addWidget(self._dashboard_pots)
         layout.addWidget(pot_group)
 
-        return tab
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+
+        return scroll
 
     def _create_mapping_tab(self) -> QWidget:
         """Aba Mapeamento — configuração de ações."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setSpacing(12)
 
         info = QLabel(
@@ -249,7 +255,12 @@ class MainWindow(QMainWindow):
         pot_layout.addWidget(self._mapping_pots)
         layout.addWidget(pot_group)
 
-        return tab
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+
+        return scroll
 
     def _create_settings_tab(self) -> QWidget:
         """Aba Configurações — serial, OBS, atualizações."""
