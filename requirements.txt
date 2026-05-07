@@ -2,6 +2,7 @@ PySide6>=6.6
 pyserial>=3.5
 obsws-python>=1.7
 pyautogui>=0.9
-requests>=2.31
+requests>=2.32.2
 pycaw>=20230407; sys_platform == "win32"
 pillow>=10.0.0 # not directly required, pinned by Snyk to avoid a vulnerability
+urllib3>=1.26.19 # not directly required, pinned by Snyk to avoid a vulnerability
